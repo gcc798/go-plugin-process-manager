@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package plugin.v1;
+
+option go_package = "github.com/gcc-798/go-plugin-process-manager/pkg/plugincontract/gen;gen";
+
+// PluginService 定义所有插件都必须实现的通用能力。
+service PluginService {
+  // GetInfo 返回插件身份和版本。
+  rpc GetInfo(GetInfoRequest) returns (PluginInfo);
+  // Health 返回业务健康状态。
+  rpc Health(HealthRequest) returns (HealthResponse);
+  // SendMessage 透传一条插件自有的业务消息。
+  rpc SendMessage(MessageRequest) returns (MessageResponse);
+  // ConfigureHost 建立插件主动上报所需的宿主回调连接。
+  rpc ConfigureHost(ConfigureHostRequest) returns (ConfigureHostResponse);
+  // Shutdown 请求插件优雅停止。
+  rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
+}
+
+// GetInfoRequest 是信息查询请求。
+message GetInfoRequest {}
+
+// PluginInfo 描述插件进程。
+message PluginInfo {
+  string type = 1;
+  string version = 2;
+  int64 pid = 3;
+}
+
+// HealthRequest 是业务健康检查请求。
+message HealthRequest {}
+
+// HealthResponse 描述业务健康结果。
+message HealthResponse {
+  bool healthy = 1;
+  string message = 2;
+}
+
+// Message 承载与具体插件类型无关的业务消息。
+message Message {
+  string message_id = 1;
+  string correlation_id = 2;
+  string plugin_id = 3;
+  string message_type = 4;
+  string payload_json = 5;
+  string sent_at = 6;
+  map<string, string> metadata = 7;
+  int64 generation = 8;
+}
+
+// MessageRequest 包装业务请求消息。
+message MessageRequest { Message message = 1; }
+
+// MessageResponse 是 RPC 对请求的响应，不代表插件主动上报。
+message MessageResponse {
+  string message_id = 1;
+  string correlation_id = 2;
+  string payload_json = 3;
+  bool success = 4;
+  string error = 5;
+  string responded_at = 6;
+}
+
+// ConfigureHostRequest 告知插件宿主回调 Broker 标识和当前实例身份。
+message ConfigureHostRequest {
+  uint32 broker_id = 1;
+  string plugin_id = 2;
+  int64 generation = 3;
+}
+
+// ConfigureHostResponse 表示回调连接是否建立。
+message ConfigureHostResponse { bool configured = 1; }
+
+// ShutdownRequest 是优雅关闭请求。
+message ShutdownRequest {}
+
+// ShutdownResponse 表示插件已接受关闭请求。
+message ShutdownResponse { bool accepted = 1; }
+

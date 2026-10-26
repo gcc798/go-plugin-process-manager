@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package plugin.v1;
+
+option go_package = "github.com/gcc-798/go-plugin-process-manager/pkg/plugincontract/gen;gen";
+
+import "api/proto/plugin/v1/plugin.proto";
+
+// HostService 是由 Master 通过 GRPCBroker 暴露给插件的回调服务。
+service HostService {
+  // ReportMessage 接收真正由插件主动发起的业务上报并返回 ACK。
+  rpc ReportMessage(MessageRequest) returns (MessageResponse);
+}

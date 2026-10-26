@@ -1,0 +1,15 @@
+{
+  "listen": "127.0.0.1:16060",
+  "health": {
+    "interval_seconds": 3,
+    "timeout_seconds": 2,
+    "failure_threshold": 3
+  },
+  "restart": {
+    "enabled": true,
+    "max_retries": 5,
+    "initial_delay_seconds": 1,
+    "max_delay_seconds": 30,
+    "stable_reset_seconds": 60
+  }
+}
