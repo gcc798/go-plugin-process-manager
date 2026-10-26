@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	gen "github.com/gcc-798/go-plugin-process-manager/pkg/plugincontract/gen"
+	gen "github.com/gcc798/go-plugin-process-manager/pkg/plugincontract/gen"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"

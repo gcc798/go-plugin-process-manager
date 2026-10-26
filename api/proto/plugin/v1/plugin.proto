@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package plugin.v1;
 
-option go_package = "github.com/gcc-798/go-plugin-process-manager/pkg/plugincontract/gen;gen";
+option go_package = "github.com/gcc798/go-plugin-process-manager/pkg/plugincontract/gen;gen";
 
 // PluginService 定义所有插件都必须实现的通用能力。
 service PluginService {

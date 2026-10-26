@@ -13,10 +13,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gcc-798/go-plugin-process-manager/internal/master/httpapi"
-	masterlogger "github.com/gcc-798/go-plugin-process-manager/internal/master/logger"
-	"github.com/gcc-798/go-plugin-process-manager/internal/master/manager"
-	"github.com/gcc-798/go-plugin-process-manager/internal/master/storage"
+	"github.com/gcc798/go-plugin-process-manager/internal/master/httpapi"
+	masterlogger "github.com/gcc798/go-plugin-process-manager/internal/master/logger"
+	"github.com/gcc798/go-plugin-process-manager/internal/master/manager"
+	"github.com/gcc798/go-plugin-process-manager/internal/master/storage"
 )
 
 const (
@@ -56,7 +56,7 @@ func main() {
 		log.Error("初始化插件管理器失败", "component", "master", "error", err)
 		os.Exit(1)
 	}
-	server := &http.Server{Addr: *listen, Handler: httpapi.NewRouter(pluginManager, buffer), ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{Addr: *listen, Handler: httpapi.NewRouter(pluginManager, buffer, log), ReadHeaderTimeout: 5 * time.Second}
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.ListenAndServe() }()
 	log.Info("Master HTTP 服务已启动", "component", "master", "address", *listen, "data_dir", *dataDir, "plugin_dir", *pluginDir)

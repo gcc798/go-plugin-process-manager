@@ -5,8 +5,8 @@ import (
 	"flag"
 	"os"
 
-	"github.com/gcc-798/go-plugin-process-manager/internal/plugins/timestamp"
-	"github.com/gcc-798/go-plugin-process-manager/pkg/plugincontract"
+	"github.com/gcc798/go-plugin-process-manager/internal/plugins/timestamp"
+	"github.com/gcc798/go-plugin-process-manager/pkg/plugincontract"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
 )

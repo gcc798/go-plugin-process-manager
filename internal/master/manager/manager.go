@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gcc-798/go-plugin-process-manager/internal/master/model"
-	"github.com/gcc-798/go-plugin-process-manager/internal/master/storage"
-	"github.com/gcc-798/go-plugin-process-manager/pkg/plugincontract"
-	gen "github.com/gcc-798/go-plugin-process-manager/pkg/plugincontract/gen"
+	"github.com/gcc798/go-plugin-process-manager/internal/master/model"
+	"github.com/gcc798/go-plugin-process-manager/internal/master/storage"
+	"github.com/gcc798/go-plugin-process-manager/pkg/plugincontract"
+	gen "github.com/gcc798/go-plugin-process-manager/pkg/plugincontract/gen"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
 )

@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gcc-798/go-plugin-process-manager/internal/plugins"
-	gen "github.com/gcc-798/go-plugin-process-manager/pkg/plugincontract/gen"
+	"github.com/gcc798/go-plugin-process-manager/internal/plugins"
+	gen "github.com/gcc798/go-plugin-process-manager/pkg/plugincontract/gen"
 	"github.com/hashicorp/go-hclog"
 )
 

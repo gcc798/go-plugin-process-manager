@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	gen "github.com/gcc-798/go-plugin-process-manager/pkg/plugincontract/gen"
+	gen "github.com/gcc798/go-plugin-process-manager/pkg/plugincontract/gen"
 )
 
 // TestHandleVersions 验证两个时间戳版本的响应差异。

@@ -9,10 +9,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gcc-798/go-plugin-process-manager/internal/master/logger"
-	"github.com/gcc-798/go-plugin-process-manager/internal/master/manager"
-	"github.com/gcc-798/go-plugin-process-manager/internal/master/model"
+	"github.com/gcc798/go-plugin-process-manager/internal/master/logger"
+	"github.com/gcc798/go-plugin-process-manager/internal/master/manager"
+	"github.com/gcc798/go-plugin-process-manager/internal/master/model"
 	"github.com/gin-gonic/gin"
+	"github.com/hashicorp/go-hclog"
 )
 
 const (
@@ -64,12 +65,12 @@ type messageRequest struct {
 	TimeoutMS int `json:"timeout_ms"`
 }
 
-// NewRouter 创建包含全部 V1 路由的 Gin Handler。
-func NewRouter(pluginManager *manager.Manager, logs *logger.Buffer) http.Handler {
+// NewRouter 创建包含全部 V1 路由和请求日志的 Gin Handler。
+func NewRouter(pluginManager *manager.Manager, logs *logger.Buffer, log hclog.Logger) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	api := &API{manager: pluginManager, logs: logs}
 	router := gin.New()
-	router.Use(gin.Recovery())
+	router.Use(requestLogger(log), gin.Recovery())
 	router.POST("/api/plugins", api.register)
 	router.GET("/api/plugins", api.listPlugins)
 	router.GET("/api/plugins/:id", api.getPlugin)
@@ -89,6 +90,15 @@ func NewRouter(pluginManager *manager.Manager, logs *logger.Buffer) http.Handler
 	router.GET("/api/interactions", api.interactions)
 	router.GET("/api/logs", api.queryLogs)
 	return router
+}
+
+// requestLogger 在每次 Gin 请求完成后输出 URL、状态码和耗时。
+func requestLogger(log hclog.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		started := time.Now()
+		c.Next()
+		log.Info("HTTP 请求", "component", "master", "method", c.Request.Method, "url", c.Request.URL.RequestURI(), "status", c.Writer.Status(), "duration_ms", time.Since(started).Milliseconds(), "client_ip", c.ClientIP())
+	}
 }
 
 // register 校验请求并注册一个插件实例。

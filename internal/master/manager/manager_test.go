@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gcc-798/go-plugin-process-manager/internal/master/model"
-	"github.com/gcc-798/go-plugin-process-manager/internal/master/storage"
+	"github.com/gcc798/go-plugin-process-manager/internal/master/model"
+	"github.com/gcc798/go-plugin-process-manager/internal/master/storage"
 	"github.com/hashicorp/go-hclog"
 )
 

@@ -26,7 +26,7 @@ const file_api_proto_plugin_v1_host_proto_rawDesc = "" +
 	"\n" +
 	"\x1eapi/proto/plugin/v1/host.proto\x12\tplugin.v1\x1a api/proto/plugin/v1/plugin.proto2U\n" +
 	"\vHostService\x12F\n" +
-	"\rReportMessage\x12\x19.plugin.v1.MessageRequest\x1a\x1a.plugin.v1.MessageResponseBIZGgithub.com/gcc-798/go-plugin-process-manager/pkg/plugincontract/gen;genb\x06proto3"
+	"\rReportMessage\x12\x19.plugin.v1.MessageRequest\x1a\x1a.plugin.v1.MessageResponseBHZFgithub.com/gcc798/go-plugin-process-manager/pkg/plugincontract/gen;genb\x06proto3"
 
 var file_api_proto_plugin_v1_host_proto_goTypes = []any{
 	(*MessageRequest)(nil),  // 0: plugin.v1.MessageRequest

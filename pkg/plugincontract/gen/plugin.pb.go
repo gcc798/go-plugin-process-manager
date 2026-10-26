@@ -686,7 +686,7 @@ const file_api_proto_plugin_v1_plugin_proto_rawDesc = "" +
 	"\x06Health\x12\x18.plugin.v1.HealthRequest\x1a\x19.plugin.v1.HealthResponse\x12D\n" +
 	"\vSendMessage\x12\x19.plugin.v1.MessageRequest\x1a\x1a.plugin.v1.MessageResponse\x12R\n" +
 	"\rConfigureHost\x12\x1f.plugin.v1.ConfigureHostRequest\x1a .plugin.v1.ConfigureHostResponse\x12C\n" +
-	"\bShutdown\x12\x1a.plugin.v1.ShutdownRequest\x1a\x1b.plugin.v1.ShutdownResponseBIZGgithub.com/gcc-798/go-plugin-process-manager/pkg/plugincontract/gen;genb\x06proto3"
+	"\bShutdown\x12\x1a.plugin.v1.ShutdownRequest\x1a\x1b.plugin.v1.ShutdownResponseBHZFgithub.com/gcc798/go-plugin-process-manager/pkg/plugincontract/gen;genb\x06proto3"
 
 var (
 	file_api_proto_plugin_v1_plugin_proto_rawDescOnce sync.Once

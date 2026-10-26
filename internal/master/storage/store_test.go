@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gcc-798/go-plugin-process-manager/internal/master/model"
+	"github.com/gcc798/go-plugin-process-manager/internal/master/model"
 )
 
 // TestStoreRoundTrip 验证定义、快照和交互记录能够完整持久化。

@@ -2,6 +2,20 @@
 
 这是一个使用 HashiCorp `go-plugin`、gRPC 与 `GRPCBroker` 构建的多进程插件管理工程。Master 提供本机 HTTP 管理面，Timestamp 与 Heartbeat 是两个正式内置插件进程；项目覆盖动态启停、双向通信、健康检查、崩溃恢复、热更新、结构化日志和 JSON 审计，可直接作为生产化模板继续扩展。
 
+## 核心能力
+
+- 使用 HashiCorp `go-plugin` 管理独立插件进程，不使用标准库 `plugin.Open`。
+- 使用统一消息契约承载插件业务，不把具体业务方法写入公共 gRPC 服务。
+- 支持 Master 请求插件与插件主动回调 Master，并分别记录交互语义。
+- 支持 desired/observed state、健康检查、崩溃检测、指数退避重启和 generation 隔离。
+- 支持候选进程先启动、验证通过后再切换的插件版本更新。
+- 统一输出 Master 与插件日志，同时保存生命周期、通信和重启历史。
+- 提供单元测试、竞态测试及可重复运行的 curl 端到端测试。
+
+## 项目状态与边界
+
+当前版本适合作为单机插件管理服务和生产化工程模板。默认 HTTP 服务仅监听 `127.0.0.1`，没有内置用户认证、TLS、操作系统沙箱或多 Master 协调；不要在未增加这些能力前直接暴露到不可信网络。JSON 存储适合单节点和有限历史规模，更大规模部署应替换为具备事务、备份和并发访问能力的持久化实现。
+
 ## 架构
 
 ```text
@@ -20,7 +34,20 @@ Master ── 生命周期/健康/重启/更新 ──► go-plugin Client ─�
 
 Master 日志与 go-plugin 转发的插件日志进入同一输出，但用 `component=master|plugin`、`plugin_id`、`generation` 和可用时的 `pid` 区分。
 
-## 目录
+## 文档导航
+
+| 文档 | 内容 |
+|---|---|
+| [架构与存储](docs/architecture.md) | 进程模型、JSON 原子写入和单 Master 边界 |
+| [插件协议](docs/plugin-protocol.md) | 通用消息契约、MessageHandler 和 Broker 回调 |
+| [双向通信](docs/communication.md) | 请求响应与插件主动上报的语义区别 |
+| [生命周期](docs/lifecycle.md) | 状态机、并发控制和动态更新 |
+| [崩溃恢复](docs/crash-recovery.md) | 三维健康检查、退避和重启策略 |
+| [HTTP API](docs/http-api.md) | 请求格式、过滤参数、响应和状态码 |
+| [gRPC 代码生成](docs/grpc-code-generation.md) | 手写/生成代码边界、工具版本和命令 |
+| [实现原理](docs/implementation-notes.md) | go-plugin、多进程及关键源码设计 |
+
+## 工程目录
 
 - `api/proto/plugin/v1`：通用 PluginService 与 HostService 契约。
 - `pkg/plugincontract`：go-plugin 握手、gRPC 代理和 Broker 回调搭桥。
@@ -32,14 +59,27 @@ Master 日志与 go-plugin 转发的插件日志进入同一输出，但用 `com
 
 ## 环境与构建
 
-需要 Go 1.25+；集成测试还需要 Bash、curl、jq、lsof 和常见 POSIX 进程工具。macOS Apple Silicon 与 Linux 均可直接编译。
+需要 Go 1.27+；集成测试还需要 Bash、curl、jq、lsof 和常见 POSIX 进程工具。macOS Apple Silicon 与 Linux 均可直接编译。
 
 ```bash
 make build
+```
+
+启动 Master（该命令会持续占用当前终端）：
+
+```bash
 make run-master
 ```
 
+在另一个终端验证服务：
+
+```bash
+curl -fsS http://127.0.0.1:16060/api/monitor/overview | jq
+```
+
 默认监听 `127.0.0.1:16060`。Master 位于 `dist/master`，因此默认数据、日志和允许执行的插件目录分别是 `dist/data`、`dist/logs` 与 `dist/plugins`，不依赖启动时工作目录。可用 `-data-dir`、`-log-dir`、`-plugin-dir`、`-listen` 覆盖。
+
+`configs/master.json` 记录默认策略基线，当前启动参数以命令行 flag 为准。执行 `./dist/master -h` 可查看全部参数。
 
 ## 快速体验
 
@@ -103,5 +143,16 @@ make test-integration
 
 `scripts/test-all.sh` 在 16160 端口启动自己拥有的临时 Master，结束时只停止该 PID，不会清理用户已有实例。单项脚本可通过 `BASE_URL` 指向已启动 Master。
 
-清理手工创建的实例时先对相关 ID 调用 Stop/Delete，再停止 Master；不要用宽泛的 `pkill`。更深入的实现说明见 [docs/interview-notes.md](docs/interview-notes.md)。
+## 开发验证
+
+修改 protobuf 契约后运行 `make generate`，生成文件不应手工编辑。提交前至少执行：
+
+```bash
+go vet ./...
+go test ./...
+go test -race ./...
+make test-integration
+```
+
+清理手工创建的实例时先对相关 ID 调用 Stop/Delete，再停止 Master；不要用宽泛的 `pkill`。
 

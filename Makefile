@@ -1,4 +1,10 @@
-.PHONY: build build-master build-plugins run-master test test-race test-integration clean
+.PHONY: generate build build-master build-plugins run-master test test-race test-integration clean
+
+generate:
+	protoc -I . \
+		--go_out=. --go_opt=module=github.com/gcc798/go-plugin-process-manager \
+		--go-grpc_out=. --go-grpc_opt=module=github.com/gcc798/go-plugin-process-manager \
+		api/proto/plugin/v1/plugin.proto api/proto/plugin/v1/host.proto
 
 build: build-master build-plugins
 
