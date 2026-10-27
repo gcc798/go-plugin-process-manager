@@ -3,8 +3,10 @@ package httpapi
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
 	"strconv"
 	"time"
@@ -21,7 +23,21 @@ const (
 	DefaultLimit = 100
 	// MaxLimit 是列表接口允许的最大返回条数。
 	MaxLimit = 1000
+	// MaxUploadRequestBytes 为二进制内容预留 multipart 元数据空间后的请求上限。
+	MaxUploadRequestBytes int64 = manager.MaxPluginBinaryBytes + 1<<20
+	// StreamHistoryLimit 是单次实时快照携带的每类历史记录上限。
+	StreamHistoryLimit = 100
+	// StreamHeartbeatInterval 是 SSE 保活事件间隔。
+	StreamHeartbeatInterval = 15 * time.Second
 )
+
+// dashboardAssets 保存随 Master 二进制发布的看板静态资源。
+//
+//go:embed dashboard/*
+var dashboardAssets embed.FS
+
+// dashboardContent 是去掉嵌入目录前缀后的只读文件系统。
+var dashboardContent = mustDashboardContent()
 
 // API 持有 HTTP 请求所需的业务依赖。
 type API struct {
@@ -71,14 +87,18 @@ func NewRouter(pluginManager *manager.Manager, logs *logger.Buffer, log hclog.Lo
 	api := &API{manager: pluginManager, logs: logs}
 	router := gin.New()
 	router.Use(requestLogger(log), gin.Recovery())
+	router.GET("/", func(c *gin.Context) { c.Redirect(http.StatusTemporaryRedirect, "/dashboard/") })
+	router.StaticFS("/dashboard", dashboardContent)
 	router.POST("/api/plugins", api.register)
 	router.GET("/api/plugins", api.listPlugins)
+	router.GET("/api/plugin-binaries", api.pluginBinaries)
 	router.GET("/api/plugins/:id", api.getPlugin)
 	router.DELETE("/api/plugins/:id", api.deletePlugin)
 	router.POST("/api/plugins/:id/start", api.start)
 	router.POST("/api/plugins/:id/stop", api.stop)
 	router.POST("/api/plugins/:id/restart", api.restart)
 	router.POST("/api/plugins/:id/update", api.update)
+	router.POST("/api/plugins/:id/update/upload", api.uploadUpdate)
 	router.POST("/api/plugins/:id/messages", api.sendMessage)
 	router.GET("/api/plugins/:id/health", api.health)
 	router.GET("/api/plugins/:id/interactions", api.pluginInteractions)
@@ -86,10 +106,20 @@ func NewRouter(pluginManager *manager.Manager, logs *logger.Buffer, log hclog.Lo
 	router.GET("/api/plugins/:id/restarts", api.pluginRestarts)
 	router.GET("/api/monitor/overview", api.overview)
 	router.GET("/api/monitor/plugins", api.monitorPlugins)
+	router.GET("/api/monitor/stream", api.monitorStream)
 	router.GET("/api/events", api.events)
 	router.GET("/api/interactions", api.interactions)
 	router.GET("/api/logs", api.queryLogs)
 	return router
+}
+
+// mustDashboardContent 创建供 Gin 使用的看板文件系统，嵌入资源异常时立即终止启动。
+func mustDashboardContent() http.FileSystem {
+	content, err := fs.Sub(dashboardAssets, "dashboard")
+	if err != nil {
+		panic("加载内嵌看板资源失败: " + err.Error())
+	}
+	return http.FS(content)
 }
 
 // requestLogger 在每次 Gin 请求完成后输出 URL、状态码和耗时。
@@ -121,6 +151,16 @@ func (a *API) listPlugins(c *gin.Context) {
 	definitions := a.manager.Definitions()
 	snapshots := a.manager.Snapshots()
 	c.JSON(http.StatusOK, gin.H{"plugins": definitions, "runtime": snapshots})
+}
+
+// pluginBinaries 返回允许目录内可注册的插件程序。
+func (a *API) pluginBinaries(c *gin.Context) {
+	binaries, err := a.manager.PluginBinaries()
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"binaries": binaries})
 }
 
 // getPlugin 返回一个插件的定义与运行快照。
@@ -183,6 +223,47 @@ func (a *API) update(c *gin.Context) {
 	a.writeCurrent(c)
 }
 
+// uploadUpdate 接收受限大小的插件二进制，并在验证通过后动态切换版本。
+func (a *API) uploadUpdate(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, MaxUploadRequestBytes)
+	if err := c.Request.ParseMultipartForm(8 << 20); err != nil {
+		if _, oversized := errors.AsType[*http.MaxBytesError](err); oversized {
+			fail(c, http.StatusRequestEntityTooLarge, err)
+			return
+		}
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	defer c.Request.MultipartForm.RemoveAll()
+	version := c.Request.FormValue("version")
+	files := c.Request.MultipartForm.File["binary"]
+	if version == "" || len(files) != 1 {
+		fail(c, http.StatusBadRequest, errors.New("version 和唯一 binary 文件不能为空"))
+		return
+	}
+	if files[0].Size > manager.MaxPluginBinaryBytes {
+		fail(c, http.StatusRequestEntityTooLarge, errors.New("插件二进制超过上传限制"))
+		return
+	}
+	file, err := files[0].Open()
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	defer file.Close()
+	binaryPath, err := a.manager.UploadAndUpdate(c.Request.Context(), c.Param("id"), version, file)
+	if err != nil {
+		writeManagerError(c, err)
+		return
+	}
+	_, snapshot, err := a.manager.Snapshot(c.Param("id"))
+	if err != nil {
+		writeManagerError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"binary_path": binaryPath, "runtime": snapshot})
+}
+
 // sendMessage 向当前插件实例发送一条通用业务消息。
 func (a *API) sendMessage(c *gin.Context) {
 	var request messageRequest
@@ -237,6 +318,83 @@ func (a *API) overview(c *gin.Context) {
 // monitorPlugins 返回全部插件的实时运行快照。
 func (a *API) monitorPlugins(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"plugins": a.manager.Snapshots()})
+}
+
+// monitorStream 通过 SSE 在状态、交互或事件变化时推送完整控制台快照。
+func (a *API) monitorStream(c *gin.Context) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	updates, unsubscribe := a.manager.Subscribe()
+	defer unsubscribe()
+	if err := a.writeStreamSnapshot(c); err != nil {
+		c.SSEvent("stream_error", gin.H{"error": err.Error()})
+		c.Writer.Flush()
+	}
+	heartbeat := time.NewTicker(StreamHeartbeatInterval)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case <-a.manager.Done():
+			return
+		case <-updates:
+			if err := a.writeStreamSnapshot(c); err != nil {
+				c.SSEvent("stream_error", gin.H{"error": err.Error()})
+				c.Writer.Flush()
+			}
+		case now := <-heartbeat.C:
+			c.SSEvent("heartbeat", gin.H{"sent_at": now})
+			c.Writer.Flush()
+		}
+	}
+}
+
+// writeStreamSnapshot 读取实时状态和有限历史，并写入一个 SSE snapshot 事件。
+func (a *API) writeStreamSnapshot(c *gin.Context) error {
+	binaries, err := a.manager.PluginBinaries()
+	if err != nil {
+		return err
+	}
+	interactions, err := a.manager.Interactions()
+	if err != nil {
+		return err
+	}
+	events, err := a.manager.Events()
+	if err != nil {
+		return err
+	}
+	restarts, err := a.manager.Restarts()
+	if err != nil {
+		return err
+	}
+	plugins := a.manager.Snapshots()
+	alive := 0
+	healthy := 0
+	for _, plugin := range plugins {
+		if plugin.ProcessAlive {
+			alive++
+		}
+		if plugin.Healthy {
+			healthy++
+		}
+	}
+	c.SSEvent("snapshot", gin.H{
+		"observed_at": time.Now(), "plugin_count": len(plugins), "process_alive_count": alive, "healthy_count": healthy,
+		"plugins": plugins, "available_binaries": binaries, "interactions": tailValues(interactions, StreamHistoryLimit), "events": tailValues(events, StreamHistoryLimit), "restarts": tailValues(restarts, StreamHistoryLimit),
+	})
+	c.Writer.Flush()
+	return nil
+}
+
+// tailValues 返回切片末尾至多 limit 条记录。
+func tailValues[T any](values []T, limit int) []T {
+	if len(values) <= limit {
+		return values
+	}
+	return values[len(values)-limit:]
 }
 
 // events 返回经过 plugin_id 和 event_type 过滤的事件。

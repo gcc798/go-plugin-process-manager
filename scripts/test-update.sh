@@ -17,4 +17,8 @@ jq -e '.payload_json | fromjson | .version == "2.0.0" and has("formatted_time")'
 request POST "/api/plugins/$ID/update" 400 '{"version":"9.0.0","binary_path":"/does/not/exist"}'
 request GET "/api/plugins/$ID" 200
 jq -e '.runtime.version == "2.0.0" and .runtime.process_alive == true' "$RESPONSE_FILE" >/dev/null
+RESPONSE_FILE="$(mktemp)"
+HTTP_STATUS="$(curl -sS -o "$RESPONSE_FILE" -w '%{http_code}' -X POST -F 'version=1.0.0' -F "binary=@$ROOT_DIR/dist/plugins/timestamp/v1.0.0/timestamp-plugin" "$BASE_URL/api/plugins/$ID/update/upload")"
+[[ "$HTTP_STATUS" == "200" ]]
+jq -e '.runtime.version == "1.0.0" and .runtime.process_alive == true and (.binary_path | contains("/uploads/"))' "$RESPONSE_FILE" >/dev/null
 printf 'PASS update\n'

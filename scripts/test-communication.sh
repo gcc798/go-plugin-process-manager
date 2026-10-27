@@ -4,6 +4,8 @@ source "$(dirname "$0")/common.sh"
 TIMESTAMP_ID="timestamp-communication"
 HEARTBEAT_ID="heartbeat-communication"
 trap 'cleanup_plugin "$TIMESTAMP_ID"; cleanup_plugin "$HEARTBEAT_ID"; cleanup_response' EXIT
+SSE_OUTPUT="$(curl -sN --max-time 1 "$BASE_URL/api/monitor/stream" || true)"
+grep -q '^event:snapshot$' <<<"$SSE_OUTPUT"
 register_plugin "$TIMESTAMP_ID" timestamp 1.0.0 "$ROOT_DIR/dist/plugins/timestamp/v1.0.0/timestamp-plugin"
 request POST "/api/plugins/$TIMESTAMP_ID/start" 200
 request POST "/api/plugins/$TIMESTAMP_ID/messages" 200 '{"message_type":"timestamp.generate","payload":{}}'

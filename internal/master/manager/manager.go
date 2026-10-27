@@ -7,11 +7,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,10 +34,15 @@ const (
 	DefaultFailureThreshold = 3
 	// TimestampSampleInterval 是 Master 自动请求时间戳的间隔。
 	TimestampSampleInterval = 5 * time.Second
+	// MaxPluginBinaryBytes 是单个上传插件二进制的最大字节数。
+	MaxPluginBinaryBytes int64 = 100 << 20
 )
 
 // idPattern 限制插件 ID，避免日志注入和路径语义混入标识。
 var idPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
+
+// versionPattern 限制上传版本目录名，避免路径穿越和异常文件名。
+var versionPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._+-]{0,63}$`)
 
 // ErrNotFound 表示插件实例不存在。
 var ErrNotFound = errors.New("插件不存在")
@@ -97,6 +104,10 @@ type Manager struct {
 	rootCtx context.Context
 	// rootCancel 触发 Master 全局退出。
 	rootCancel context.CancelFunc
+	// subscriptionMu 保护实时状态订阅集合。
+	subscriptionMu sync.Mutex
+	// subscriptions 保存 SSE 客户端对应的非阻塞通知通道。
+	subscriptions map[chan struct{}]struct{}
 }
 
 // New 从 JSON 存储恢复注册定义；旧 PID 只作为历史，不认定为存活。
@@ -118,7 +129,7 @@ func New(store *storage.Store, logger hclog.Logger, allowedRoot string) (*Manage
 		previousByID[snapshot.PluginID] = snapshot
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	manager := &Manager{runtimes: make(map[string]*runtime), store: store, logger: logger, allowedRoot: root, rootCtx: ctx, rootCancel: cancel}
+	manager := &Manager{runtimes: make(map[string]*runtime), store: store, logger: logger, allowedRoot: root, rootCtx: ctx, rootCancel: cancel, subscriptions: make(map[chan struct{}]struct{})}
 	for _, definition := range definitions {
 		snapshot := previousByID[definition.ID]
 		snapshot.PluginID = definition.ID
@@ -514,6 +525,64 @@ func (m *Manager) Update(ctx context.Context, id, version, binaryPath string) er
 	return nil
 }
 
+// UploadAndUpdate 将上传内容安全写入允许目录，并使用该二进制更新运行中的插件。
+func (m *Manager) UploadAndUpdate(ctx context.Context, id, version string, source io.Reader) (string, error) {
+	if _, err := m.lookup(id); err != nil {
+		return "", err
+	}
+	if !versionPattern.MatchString(version) {
+		return "", fmt.Errorf("版本格式无效")
+	}
+	binaryPath, err := m.saveUploadedBinary(id, version, source, MaxPluginBinaryBytes)
+	if err != nil {
+		return "", err
+	}
+	if err := m.Update(ctx, id, version, binaryPath); err != nil {
+		if removeErr := os.Remove(binaryPath); removeErr != nil {
+			return "", errors.Join(err, fmt.Errorf("清理失败上传文件: %w", removeErr))
+		}
+		return "", err
+	}
+	m.event(id, "PLUGIN_BINARY_UPLOADED", map[string]any{"version": version, "binary_path": binaryPath})
+	return binaryPath, nil
+}
+
+// saveUploadedBinary 限制上传大小，并通过同目录临时文件原子写入可执行文件。
+func (m *Manager) saveUploadedBinary(id, version string, source io.Reader, maxBytes int64) (string, error) {
+	directory := filepath.Join(m.allowedRoot, "uploads", id, version)
+	if err := os.MkdirAll(directory, 0o750); err != nil {
+		return "", fmt.Errorf("创建插件上传目录: %w", err)
+	}
+	temporary, err := os.CreateTemp(directory, ".plugin-upload-*")
+	if err != nil {
+		return "", fmt.Errorf("创建插件上传临时文件: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+
+	written, writeErr := io.Copy(temporary, io.LimitReader(source, maxBytes+1))
+	if writeErr == nil && written > maxBytes {
+		writeErr = fmt.Errorf("插件二进制超过 %d 字节限制", maxBytes)
+	}
+	if writeErr == nil {
+		writeErr = temporary.Sync()
+	}
+	if closeErr := temporary.Close(); writeErr == nil {
+		writeErr = closeErr
+	}
+	if writeErr != nil {
+		return "", fmt.Errorf("写入插件二进制: %w", writeErr)
+	}
+	if err := os.Chmod(temporaryPath, 0o700); err != nil {
+		return "", fmt.Errorf("设置插件执行权限: %w", err)
+	}
+	finalPath := filepath.Join(directory, "plugin-"+newID("bin"))
+	if err := os.Rename(temporaryPath, finalPath); err != nil {
+		return "", fmt.Errorf("发布插件二进制: %w", err)
+	}
+	return finalPath, nil
+}
+
 // SendMessage 发起 Master→Plugin 业务 RPC，并将响应合并到同一条交互记录。
 func (m *Manager) SendMessage(ctx context.Context, id, messageType, payload string) (*gen.MessageResponse, error) {
 	runtime, err := m.lookup(id)
@@ -550,8 +619,12 @@ func (m *Manager) SendMessage(ctx context.Context, id, messageType, payload stri
 			callErr = errors.New(response.Error)
 		}
 	}
-	if err := m.store.AppendInteraction(record); err != nil && callErr == nil {
-		callErr = fmt.Errorf("保存交互记录: %w", err)
+	if err := m.store.AppendInteraction(record); err != nil {
+		if callErr == nil {
+			callErr = fmt.Errorf("保存交互记录: %w", err)
+		}
+	} else {
+		m.notify()
 	}
 	m.touchInteraction(runtime, "MASTER_TO_PLUGIN", messageType, started, completed)
 	m.logger.Info("收到业务响应", "component", "master", "plugin_id", id, "pid", current.pid, "generation", current.generation, "message_id", messageID, "direction", "PLUGIN_TO_MASTER", "duration_ms", record.DurationMS, "status", record.Status)
@@ -601,6 +674,7 @@ func (m *Manager) report(message *gen.Message) (*gen.MessageResponse, error) {
 	if err := m.store.AppendInteraction(record); err != nil {
 		return nil, fmt.Errorf("保存主动上报: %w", err)
 	}
+	m.notify()
 	m.touchInteraction(runtime, "PLUGIN_TO_MASTER", message.MessageType, sentAt, completed)
 	response := &gen.MessageResponse{MessageId: message.MessageId, CorrelationId: message.CorrelationId, PayloadJson: `{"ack":true}`, Success: true, RespondedAt: completed.Format(time.RFC3339Nano)}
 	m.logger.Info("已发送插件 ACK", "component", "master", "plugin_id", message.PluginId, "pid", current.pid, "generation", message.Generation, "message_id", message.MessageId, "direction", "MASTER_TO_PLUGIN")
@@ -846,6 +920,56 @@ func (m *Manager) Definitions() []model.PluginDefinition {
 	return values
 }
 
+// PluginBinaries 返回插件目录中符合 type/version/binary 结构的可执行程序。
+func (m *Manager) PluginBinaries() ([]model.PluginBinary, error) {
+	registered := make(map[string][]string)
+	for _, definition := range m.Definitions() {
+		registered[definition.BinaryPath] = append(registered[definition.BinaryPath], definition.ID)
+	}
+	types, err := os.ReadDir(m.allowedRoot)
+	if os.IsNotExist(err) {
+		return []model.PluginBinary{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("读取插件目录: %w", err)
+	}
+	var binaries []model.PluginBinary
+	for _, pluginType := range types {
+		if !pluginType.IsDir() || pluginType.Name() == "uploads" || !idPattern.MatchString(pluginType.Name()) {
+			continue
+		}
+		versions, err := os.ReadDir(filepath.Join(m.allowedRoot, pluginType.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("读取插件类型目录: %w", err)
+		}
+		for _, version := range versions {
+			versionValue := strings.TrimPrefix(version.Name(), "v")
+			if !version.IsDir() || !versionPattern.MatchString(versionValue) {
+				continue
+			}
+			files, err := os.ReadDir(filepath.Join(m.allowedRoot, pluginType.Name(), version.Name()))
+			if err != nil {
+				return nil, fmt.Errorf("读取插件版本目录: %w", err)
+			}
+			for _, file := range files {
+				info, err := file.Info()
+				if err != nil {
+					return nil, fmt.Errorf("读取插件程序: %w", err)
+				}
+				if !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+					continue
+				}
+				path := filepath.Join(m.allowedRoot, pluginType.Name(), version.Name(), file.Name())
+				binaries = append(binaries, model.PluginBinary{Type: pluginType.Name(), Version: versionValue, BinaryPath: path, RegisteredIDs: registered[path]})
+			}
+		}
+	}
+	slices.SortFunc(binaries, func(a, b model.PluginBinary) int {
+		return compareString(a.Type+"\x00"+a.Version+"\x00"+a.BinaryPath, b.Type+"\x00"+b.Version+"\x00"+b.BinaryPath)
+	})
+	return binaries, nil
+}
+
 // Events 返回持久化的全部生命周期事件。
 func (m *Manager) Events() ([]model.Event, error) {
 	return m.store.Events()
@@ -859,6 +983,36 @@ func (m *Manager) Interactions() ([]model.Interaction, error) {
 // Restarts 返回持久化的全部自动重启记录。
 func (m *Manager) Restarts() ([]model.RestartRecord, error) {
 	return m.store.Restarts()
+}
+
+// Subscribe 创建实时状态变化订阅，并返回用于释放订阅的函数。
+func (m *Manager) Subscribe() (<-chan struct{}, func()) {
+	updates := make(chan struct{}, 1)
+	m.subscriptionMu.Lock()
+	m.subscriptions[updates] = struct{}{}
+	m.subscriptionMu.Unlock()
+	return updates, func() {
+		m.subscriptionMu.Lock()
+		delete(m.subscriptions, updates)
+		m.subscriptionMu.Unlock()
+	}
+}
+
+// Done 在 Master 开始关闭时结束，供长连接及时退出。
+func (m *Manager) Done() <-chan struct{} {
+	return m.rootCtx.Done()
+}
+
+// notify 非阻塞通知所有实时订阅者重新读取最新快照。
+func (m *Manager) notify() {
+	m.subscriptionMu.Lock()
+	defer m.subscriptionMu.Unlock()
+	for updates := range m.subscriptions {
+		select {
+		case updates <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // compareString 返回字符串排序所需的三态比较值。
@@ -908,7 +1062,9 @@ func (m *Manager) event(pluginID, eventType string, details map[string]any) {
 	event := model.Event{EventID: newID("evt"), PluginID: pluginID, Type: eventType, OccurredAt: time.Now(), Details: details}
 	if err := m.store.AppendEvent(event); err != nil {
 		m.logger.Error("保存事件失败", "component", "master", "plugin_id", pluginID, "event", eventType, "error", err)
+		return
 	}
+	m.notify()
 }
 
 // persistDefinitions 保存当前全部插件定义。
@@ -918,7 +1074,11 @@ func (m *Manager) persistDefinitions() error {
 
 // persistRuntime 保存当前全部运行快照。
 func (m *Manager) persistRuntime() error {
-	return m.store.SaveRuntime(m.Snapshots())
+	if err := m.store.SaveRuntime(m.Snapshots()); err != nil {
+		return err
+	}
+	m.notify()
+	return nil
 }
 
 // persistRuntimeLogged 保存运行快照并记录不能向调用方传播的后台错误。

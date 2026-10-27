@@ -8,6 +8,10 @@ Master 默认监听 `http://127.0.0.1:16060`。请求和响应使用 JSON；成�
 }
 ```
 
+Master 内嵌管理控制台：`http://127.0.0.1:16060/dashboard/`。控制台与 API 同源运行，不需要单独构建或部署前端资源，可执行启停、重启、数据查看和上传更新。
+
+控制台会扫描 `-plugin-dir` 下的 `类型/版本/可执行文件` 结构。尚未注册的程序显示为 `AVAILABLE / UNREGISTERED`，可直接执行“注册并启动”；注册实例与磁盘程序是两个不同概念。
+
 常见状态码：
 
 | 状态码 | 含义 |
@@ -22,6 +26,8 @@ Master 默认监听 `http://127.0.0.1:16060`。请求和响应使用 JSON；成�
 | `500` | Master 内部或持久化错误 |
 
 ## 注册插件
+
+可先通过 `GET /api/plugin-binaries` 查询插件目录中的可注册程序。
 
 ```http
 POST /api/plugins
@@ -102,6 +108,46 @@ Content-Type: application/json
 ```
 
 Master 会先启动候选进程，验证类型、版本和业务健康，再切换当前实例。候选启动或验证失败时旧实例继续运行。
+
+也可以直接上传二进制并更新：
+
+```http
+POST /api/plugins/:id/update/upload
+Content-Type: multipart/form-data
+```
+
+表单字段：
+
+- `version`：目标版本，仅允许字母、数字、点、下划线、加号和连字符，最长 64 字符。
+- `binary`：插件可执行文件，最大 100 MiB。
+
+```bash
+curl -fsS -X POST \
+  -F 'version=2.0.0' \
+  -F 'binary=@./dist/plugins/timestamp/v2.0.0/timestamp-plugin' \
+  http://127.0.0.1:16060/api/plugins/timestamp-001/update/upload | jq
+```
+
+Master 忽略客户端文件名，将内容写入 `-plugin-dir` 下的受控目录。文件完成同步和原子发布后才进入既有候选实例验证及切换流程；更新失败时会保留旧实例并清理失败上传。
+
+## SSE 实时流
+
+```http
+GET /api/monitor/stream
+Accept: text/event-stream
+```
+
+连接建立后立即发送 `snapshot` 事件；插件状态、消息交互或生命周期事件变化时继续推送，空闲期间每 15 秒发送 `heartbeat` 保活事件。`snapshot` 包含：
+
+- 插件数量、存活数和健康数。
+- 全部插件运行快照。
+- 最近 100 条消息交互。
+- 最近 100 条生命周期事件。
+- 最近 100 条重启记录。
+
+```bash
+curl -N http://127.0.0.1:16060/api/monitor/stream
+```
 
 ## 查询接口
 

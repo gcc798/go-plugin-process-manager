@@ -77,6 +77,8 @@ make run-master
 curl -fsS http://127.0.0.1:16060/api/monitor/overview | jq
 ```
 
+浏览器打开 [http://127.0.0.1:16060/dashboard/](http://127.0.0.1:16060/dashboard/) 可使用内嵌管理控制台。控制台使用纯 HTML、CSS 和 JavaScript，无额外服务或前端依赖；通过 SSE 接收插件状态、消息交互、生命周期事件和衍生数据，并支持发现插件目录中的可执行程序、注册并启动、停止、重启及上传二进制动态更新。
+
 默认监听 `127.0.0.1:16060`。Master 位于 `dist/master`，因此默认数据、日志和允许执行的插件目录分别是 `dist/data`、`dist/logs` 与 `dist/plugins`，不依赖启动时工作目录。可用 `-data-dir`、`-log-dir`、`-plugin-dir`、`-listen` 覆盖。
 
 `configs/master.json` 记录默认策略基线，当前启动参数以命令行 flag 为准。执行 `./dist/master -h` 可查看全部参数。
@@ -111,6 +113,7 @@ curl -s -X POST http://127.0.0.1:16060/api/plugins/timestamp-001/update \
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | POST / GET | `/api/plugins` | 注册 / 列表 |
+| GET | `/api/plugin-binaries` | 插件目录中的可注册程序 |
 | GET / DELETE | `/api/plugins/:id` | 详情 / 删除已停止实例 |
 | POST | `/api/plugins/:id/start` | 启动 |
 | POST | `/api/plugins/:id/stop` | 停止 |
@@ -123,9 +126,13 @@ curl -s -X POST http://127.0.0.1:16060/api/plugins/timestamp-001/update \
 | GET | `/api/plugins/:id/restarts` | 重启历史 |
 | GET | `/api/monitor/overview` | 汇总 |
 | GET | `/api/monitor/plugins` | 全部运行快照 |
+| GET | `/api/monitor/stream` | SSE 实时状态、交互、事件和重启数据 |
 | GET | `/api/events` | 全局事件 |
 | GET | `/api/interactions` | 全局交互 |
 | GET | `/api/logs` | 集中日志 |
+| POST | `/api/plugins/:id/update/upload` | 上传二进制并动态更新 |
+
+Master 同时提供管理控制台：`GET /dashboard/`。根路径 `/` 会自动跳转到控制台。
 
 列表支持 `limit`。事件还支持 `plugin_id`、`event_type`；交互支持 `plugin_id`、`direction`、`initiator`、`kind`；日志支持 `plugin_id`、`level`。
 

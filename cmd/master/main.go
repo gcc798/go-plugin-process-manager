@@ -73,7 +73,12 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
 	defer cancel()
+	managerStopped := make(chan struct{})
+	go func() {
+		pluginManager.Shutdown(ctx)
+		close(managerStopped)
+	}()
 	_ = server.Shutdown(ctx)
-	pluginManager.Shutdown(ctx)
+	<-managerStopped
 	log.Info("Master 已安全退出", "component", "master")
 }

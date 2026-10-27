@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Plugin Control Room</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="grid-haze" aria-hidden="true"></div>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">GP</span>
+        <div><strong>PLUGIN</strong><small>CONTROL ROOM</small></div>
+      </div>
+      <nav aria-label="控制台菜单">
+        <button class="nav-item active" type="button" data-view="overview"><span>01</span>运行总览</button>
+        <button class="nav-item" type="button" data-view="instances"><span>02</span>插件控制</button>
+        <button class="nav-item" type="button" data-view="interactions"><span>03</span>消息交互</button>
+        <button class="nav-item" type="button" data-view="events"><span>04</span>生命周期</button>
+        <button class="nav-item" type="button" data-view="insights"><span>05</span>数据洞察</button>
+        <button class="nav-item" type="button" data-view="deploy"><span>06</span>版本更新</button>
+      </nav>
+      <div class="stream-state">
+        <div class="live-badge"><span class="pulse"></span><span id="connection-label">连接实时流</span></div>
+        <small id="stream-detail">SSE / CONNECTING</small>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">GO PLUGIN PROCESS MANAGER</p>
+          <h1 id="view-title">运行总览</h1>
+          <p id="view-description" class="lede">观察插件进程、连接与业务健康的实时状态。</p>
+        </div>
+        <div class="topbar-actions">
+          <label for="plugin-filter">当前实例</label>
+          <select id="plugin-filter"><option value="">全部插件</option></select>
+          <button id="reconnect" class="icon-button" type="button" aria-label="重新连接实时流">↻</button>
+        </div>
+      </header>
+
+      <section class="view active" data-view-panel="overview">
+        <div class="metrics">
+          <article class="metric metric-primary"><span>注册插件</span><strong id="plugin-count">--</strong><small>REGISTERED UNITS</small></article>
+          <article class="metric"><span>存活进程</span><strong id="alive-count">--</strong><small>PROCESS ALIVE</small></article>
+          <article class="metric"><span>业务健康</span><strong id="healthy-count">--</strong><small>BUSINESS READY</small></article>
+          <article class="metric"><span>实时更新</span><strong id="stream-count">0</strong><small>SSE SNAPSHOTS</small></article>
+        </div>
+        <div class="overview-grid">
+          <section class="panel">
+            <div class="panel-heading"><div><p class="section-index">FLEET</p><h2>实例状态</h2></div><time id="observed-at">--</time></div>
+            <div id="fleet-cards" class="fleet-cards"><p class="empty">等待实时快照…</p></div>
+          </section>
+          <section class="panel">
+            <div class="panel-heading"><div><p class="section-index">LIVE</p><h2>实时数据流</h2></div><span class="counter" id="live-count">0</span></div>
+            <div id="live-feed" class="timeline"><p class="empty">等待事件…</p></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" data-view-panel="instances" hidden>
+        <section class="panel">
+          <div class="panel-heading"><div><p class="section-index">LIFECYCLE CONTROL</p><h2>插件实例</h2></div><span class="hint">操作结果将通过 SSE 自动回显</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>实例</th><th>版本 / 代次</th><th>进程</th><th>RPC</th><th>业务健康</th><th>期望 / 观测</th><th>操作</th></tr></thead>
+              <tbody id="plugins-body"><tr><td colspan="7" class="empty">等待实时快照…</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" data-view-panel="interactions" hidden>
+        <section class="panel">
+          <div class="panel-heading wrap">
+            <div><p class="section-index">MESSAGE AUDIT</p><h2>消息交互</h2></div>
+            <div class="segmented" id="interaction-kind" aria-label="交互类型筛选">
+              <button class="active" type="button" data-kind="">全部</button>
+              <button type="button" data-kind="REQUEST_RESPONSE">请求响应</button>
+              <button type="button" data-kind="ACTIVE_REPORT">主动上报</button>
+            </div>
+          </div>
+          <div id="interactions" class="timeline roomy"><p class="empty">暂无消息交互</p></div>
+        </section>
+      </section>
+
+      <section class="view" data-view-panel="events" hidden>
+        <section class="panel">
+          <div class="panel-heading"><div><p class="section-index">LIFECYCLE AUDIT</p><h2>生命周期事件</h2></div><span class="counter" id="event-count">0</span></div>
+          <div id="events" class="timeline roomy"><p class="empty">暂无生命周期事件</p></div>
+        </section>
+      </section>
+
+      <section class="view" data-view-panel="insights" hidden>
+        <div id="insight-empty" class="panel empty-state">
+          <p class="section-index">DERIVED DATA</p><h2>请选择插件实例</h2><p>使用右上角实例选择器查看消息、事件、重启与健康衍生指标。</p>
+        </div>
+        <div id="insight-content" hidden>
+          <div class="metrics insight-metrics">
+            <article class="metric"><span>累计消息</span><strong id="insight-messages">0</strong><small>INTERACTIONS</small></article>
+            <article class="metric"><span>主动上报</span><strong id="insight-reports">0</strong><small>ACTIVE REPORTS</small></article>
+            <article class="metric"><span>平均耗时</span><strong id="insight-latency">0<span class="unit">ms</span></strong><small>MEAN LATENCY</small></article>
+            <article class="metric"><span>累计重启</span><strong id="insight-restarts">0</strong><small>RESTART COUNT</small></article>
+          </div>
+          <div class="overview-grid">
+            <section class="panel"><div class="panel-heading"><div><p class="section-index">INSTANCE</p><h2>运行快照</h2></div></div><dl id="snapshot-details" class="definition-list"></dl></section>
+            <section class="panel"><div class="panel-heading"><div><p class="section-index">RESTARTS</p><h2>重启记录</h2></div></div><div id="restart-records" class="timeline"><p class="empty">暂无重启记录</p></div></section>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view-panel="deploy" hidden>
+        <div class="deploy-grid">
+          <section class="panel upload-panel">
+            <div class="panel-heading"><div><p class="section-index">BINARY DEPLOYMENT</p><h2>上传并动态更新</h2></div></div>
+            <form id="upload-form">
+              <label>目标插件<select id="upload-plugin" name="plugin_id" required><option value="">选择运行中的插件</option></select></label>
+              <label>目标版本<input id="upload-version" name="version" required maxlength="64" placeholder="例如 2.1.0" pattern="[A-Za-z0-9][A-Za-z0-9._+-]{0,63}"></label>
+              <label class="file-drop">插件二进制<input id="upload-binary" name="binary" type="file" required><span id="file-label">选择文件，最大 100 MiB</span></label>
+              <button id="upload-submit" class="primary-button" type="submit">上传、验证并切换</button>
+            </form>
+          </section>
+          <aside class="panel deploy-notes">
+            <div class="panel-heading"><div><p class="section-index">SAFE UPDATE</p><h2>更新流程</h2></div></div>
+            <ol><li>上传到 Master 允许目录</li><li>设置执行权限并原子发布</li><li>启动候选进程并完成握手</li><li>校验类型、版本和业务健康</li><li>切换代理后停止旧进程</li></ol>
+            <p>任一步骤失败都会保留当前运行版本。上传文件名不会被用于服务器路径。</p>
+          </aside>
+        </div>
+      </section>
+
+      <footer><span>LOCAL CONTROL PLANE</span><span id="footer-state">SSE CONNECTING</span></footer>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script src="./app.js" defer></script>
+</body>
+</html>

@@ -29,3 +29,16 @@ func TestRequestLoggerOutputsURL(t *testing.T) {
 		t.Fatalf("请求日志缺少 URL 或状态码: %s", logged)
 	}
 }
+
+// TestDashboardIsEmbedded 验证 Master 可以直接提供内嵌看板入口。
+func TestDashboardIsEmbedded(t *testing.T) {
+	log := hclog.NewNullLogger()
+	router := NewRouter(nil, nil, log)
+	request := httptest.NewRequest(http.MethodGet, "/dashboard/", nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "插件控制") {
+		t.Fatalf("看板响应异常: status=%d body=%s", response.Code, response.Body.String())
+	}
+}

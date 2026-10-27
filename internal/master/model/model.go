@@ -64,6 +64,18 @@ type PluginDefinition struct {
 	Restart RestartPolicy `json:"restart"`
 }
 
+// PluginBinary 是允许目录内可注册的插件程序。
+type PluginBinary struct {
+	// Type 是目录声明的插件类型。
+	Type string `json:"type"`
+	// Version 是目录声明的插件版本。
+	Version string `json:"version"`
+	// BinaryPath 是插件程序绝对路径。
+	BinaryPath string `json:"binary_path"`
+	// RegisteredIDs 是正在使用该程序的实例标识。
+	RegisteredIDs []string `json:"registered_ids"`
+}
+
 // RuntimeSnapshot 是插件最近一次运行状态快照，不用于进程重附着。
 type RuntimeSnapshot struct {
 	// PluginID 是插件实例标识。

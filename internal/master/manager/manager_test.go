@@ -3,6 +3,7 @@ package manager
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +21,82 @@ func TestRestartDelay(t *testing.T) {
 			t.Fatalf("第 %d 次退避 = %v，期望 %v", index+1, actual, expected)
 		}
 	}
+}
+
+// TestSaveUploadedBinary 验证上传内容被写入允许目录并设置执行权限。
+func TestSaveUploadedBinary(t *testing.T) {
+	root := t.TempDir()
+	pluginManager := &Manager{allowedRoot: root}
+	binaryPath, err := pluginManager.saveUploadedBinary("upload-test", "2.0.0", strings.NewReader("binary"), 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(binaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "binary" {
+		t.Fatalf("上传内容错误: %q", content)
+	}
+	info, err := os.Stat(binaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&0o111 == 0 {
+		t.Fatal("上传文件缺少执行权限")
+	}
+}
+
+// TestSaveUploadedBinaryRejectsOversize 验证超过限制的上传不会留下正式文件。
+func TestSaveUploadedBinaryRejectsOversize(t *testing.T) {
+	root := t.TempDir()
+	pluginManager := &Manager{allowedRoot: root}
+	if _, err := pluginManager.saveUploadedBinary("upload-test", "2.0.0", strings.NewReader("oversize"), 4); err == nil {
+		t.Fatal("超限上传应失败")
+	}
+}
+
+// TestPluginBinaries 验证插件目录中的不同版本程序都能被控制台发现。
+func TestPluginBinaries(t *testing.T) {
+	root := t.TempDir()
+	paths := []string{
+		filepath.Join(root, "heartbeat", "v1.0.0", "heartbeat-plugin"),
+		filepath.Join(root, "timestamp", "v1.0.0", "timestamp-plugin"),
+		filepath.Join(root, "timestamp", "v2.0.0", "timestamp-plugin"),
+	}
+	for _, path := range paths {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "timestamp", "v2.0.0", "README"), []byte("not executable"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pluginManager := &Manager{allowedRoot: root}
+	binaries, err := pluginManager.PluginBinaries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(binaries) != 3 || binaries[0].Type != "heartbeat" || binaries[2].Version != "2.0.0" {
+		t.Fatalf("发现的插件程序错误: %#v", binaries)
+	}
+}
+
+// TestSubscribe 验证状态变化通知能够到达并可安全取消。
+func TestSubscribe(t *testing.T) {
+	pluginManager := &Manager{subscriptions: make(map[chan struct{}]struct{})}
+	updates, unsubscribe := pluginManager.Subscribe()
+	pluginManager.notify()
+	select {
+	case <-updates:
+	case <-time.After(time.Second):
+		t.Fatal("未收到实时状态通知")
+	}
+	unsubscribe()
+	pluginManager.notify()
 }
 
 // TestRestartDelayDefaults 验证非法零值策略仍不会形成高频重启。
